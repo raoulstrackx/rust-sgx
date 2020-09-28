@@ -11,6 +11,7 @@
 //!
 //! [isdm]: https://www-ssl.intel.com/content/www/us/en/processors/architectures-software-developer-manuals.html
 #![cfg_attr(feature = "nightly", feature(llvm_asm))]
+#![cfg_attr(feature = "nightly", feature(asm))]
 
 #![no_std]
 #![doc(html_logo_url = "https://edp.fortanix.com/img/docs/edp-logo.svg",
@@ -34,6 +35,8 @@ use serde::{Serialize, Deserialize};
 use std::os::fortanix_sgx::arch;
 #[cfg(all(feature = "nightly", target_env = "sgx", not(feature = "sgxstd")))]
 mod arch;
+#[cfg(all(feature = "nightly", target_env = "sgx", not(feature = "sgxstd")))]
+pub use arch::eaccept;
 use core::{convert::TryFrom, num::TryFromIntError, slice};
 
 
@@ -533,6 +536,15 @@ impl SecinfoFlags {
 impl From<PageType> for SecinfoFlags {
     fn from(data: PageType) -> SecinfoFlags {
         SecinfoFlags::from_bits_truncate((data as u64) << 8)
+    }
+}
+
+impl From<SecinfoFlags> for Secinfo {
+    fn from(flags: SecinfoFlags) -> Secinfo {
+        Secinfo {
+            flags,
+            _reserved1: [0; 56],
+        }
     }
 }
 
