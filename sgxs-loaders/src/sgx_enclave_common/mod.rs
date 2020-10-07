@@ -18,6 +18,7 @@ use sgx_isa::{Attributes, Einittoken, Miscselect, PageType, SecinfoFlags, Secs, 
 use sgxs::einittoken::EinittokenProvider;
 use sgxs::loader;
 use sgxs::sgxs::{MeasEAdd, MeasECreate, PageChunks, SgxsRead};
+use crate::isgx::EnclaveController;
 
 use crate::{MappingInfo, Tcs};
 use crate::generic::{self, EinittokenError, EnclaveLoad, Mapping};
@@ -126,6 +127,7 @@ impl EinittokenError for Error {
 }
 
 impl EnclaveLoad for InnerLibrary {
+    type EnclaveController = EnclaveController;
     type Error = Error;
 
     fn new(
@@ -272,6 +274,10 @@ impl EnclaveLoad for InnerLibrary {
             (mapping.device.enclave_delete)(mapping.base as _, None);
         }
     }
+
+    fn create_controller(_mapping: &Mapping<Self>) -> Option<EnclaveController> {
+        None
+    }
 }
 
 struct InnerLibrary {
@@ -344,6 +350,7 @@ impl Library {
 }
 
 impl loader::Load for Library {
+    type EnclaveControl = EnclaveController;
     type MappingInfo = MappingInfo;
     type Tcs = Tcs;
 
@@ -353,7 +360,7 @@ impl loader::Load for Library {
         sigstruct: &Sigstruct,
         attributes: Attributes,
         miscselect: Miscselect,
-    ) -> ::std::result::Result<loader::Mapping<Self>, ::failure::Error> {
+    ) -> ::std::result::Result<(loader::Mapping<Self>, Option<Self::EnclaveControl>), ::failure::Error> {
         self.inner
             .load(reader, sigstruct, attributes, miscselect)
             .map(Into::into)

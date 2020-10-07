@@ -21,6 +21,7 @@ use openssl::{
 use sgx_isa::{Attributes, AttributesFlags, Miscselect, Sigstruct};
 use sgxs::crypto::{SgxHashOps, SgxRsaOps};
 use sgxs::loader::{Load, MappingInfo, Tcs};
+use sgxs::loader::EnclaveControl;
 use sgxs::sigstruct::{self, EnclaveHash, Signer};
 
 use crate::tcs::DebugBuffer;
@@ -307,7 +308,7 @@ impl<'a> EnclaveBuilder<'a> {
     fn load<T: Load>(
         mut self,
         loader: &mut T,
-    ) -> Result<(Vec<ErasedTcs>, *mut c_void, usize, bool), Error> {
+    ) -> Result<(Vec<ErasedTcs>, *mut c_void, usize, Option<T::EnclaveControl>, bool), Error> {
         let signature = match self.signature {
             Some(sig) => sig,
             None => self
@@ -316,7 +317,7 @@ impl<'a> EnclaveBuilder<'a> {
         };
         let attributes = self.attributes.unwrap_or(signature.attributes);
         let miscselect = self.miscselect.unwrap_or(signature.miscselect);
-        let mapping = loader.load(&mut self.enclave, &signature, attributes, miscselect)?;
+        let (mapping, controller) = loader.load(&mut self.enclave, &signature, attributes, miscselect)?;
         let forward_panics = self.forward_panics;
         if mapping.tcss.is_empty() {
             unimplemented!()
@@ -325,6 +326,7 @@ impl<'a> EnclaveBuilder<'a> {
             mapping.tcss.into_iter().map(ErasedTcs::new).collect(),
             mapping.info.address(),
             mapping.info.size(),
+            controller,
             forward_panics,
         ))
     }
@@ -333,7 +335,10 @@ impl<'a> EnclaveBuilder<'a> {
         let args = self.cmd_args.take().unwrap_or_default();
         let c = self.usercall_ext.take();
         self.load(loader)
-            .map(|(t, a, s, fp)| Command::internal_new(t, a, s, c, fp, args))
+            .map(|(t, a, s, ctr, fp)| {
+                let ctr = ctr.map(|c| Box::new(c) as Box<dyn EnclaveControl>);
+                Command::internal_new(t, a, s, c, ctr, fp, args)
+            })
     }
 
     /// Panics if you have previously called [`arg`] or [`args`].
@@ -346,6 +351,6 @@ impl<'a> EnclaveBuilder<'a> {
         }
         let c = self.usercall_ext.take();
         self.load(loader)
-            .map(|(t, a, s, fp)| Library::internal_new(t, a, s, c, fp))
+            .map(|(t, a, s, _ctr, fp)| Library::internal_new(t, a, s, c, fp))
     }
 }

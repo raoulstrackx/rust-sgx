@@ -15,10 +15,13 @@ use sgxs::loader;
 use sgxs::sgxs::{
     CreateInfo, Error as SgxsError, MeasEAdd, MeasECreate, PageChunks, PageReader, SgxsRead,
 };
+use sgxs::loader::EnclaveControl;
 
 use crate::{MappingInfo, Tcs};
+use crate::isgx::EnclaveController;
 
 pub(crate) trait EnclaveLoad: Debug + Sized + Send + Sync + 'static {
+    type EnclaveController;
     type Error: Fail + EinittokenError;
     fn new(
         device: Arc<Self>,
@@ -36,6 +39,7 @@ pub(crate) trait EnclaveLoad: Debug + Sized + Send + Sync + 'static {
         einittoken: Option<&Einittoken>,
     ) -> Result<(), Self::Error>;
     fn destroy(mapping: &mut Mapping<Self>);
+    fn create_controller(mapping: &Mapping<Self>) -> Option<Self::EnclaveController>;
 }
 
 pub(crate) trait EinittokenError {
@@ -62,17 +66,18 @@ pub(crate) struct Device<D> {
     pub einittoken_provider: Option<Box<dyn EinittokenProvider>>,
 }
 
-pub(crate) struct LoadResult {
+pub(crate) struct LoadResult<C: EnclaveControl> {
+    pub controller: Option<C>,
     pub info: MappingInfo,
     pub tcss: Vec<Tcs>,
 }
 
-impl<T: loader::Load<MappingInfo = MappingInfo, Tcs = Tcs> + ?Sized> Into<loader::Mapping<T>>
-    for LoadResult
+impl<T: loader::Load<MappingInfo = MappingInfo, Tcs = Tcs, EnclaveControl = EnclaveController> + ?Sized> Into<(loader::Mapping<T>, Option<EnclaveController>)>
+    for LoadResult<EnclaveController>
 {
-    fn into(self) -> loader::Mapping<T> {
-        let LoadResult { info, tcss } = self;
-        loader::Mapping { info, tcss }
+    fn into(self) -> (loader::Mapping<T>, Option<EnclaveController>) {
+        let LoadResult { controller, info, tcss } = self;
+        (loader::Mapping { info, tcss }, controller)
     }
 }
 
@@ -83,7 +88,7 @@ impl<D: EnclaveLoad> Device<D> {
         sigstruct: &Sigstruct,
         attributes: Attributes,
         miscselect: Miscselect,
-    ) -> ::std::result::Result<LoadResult, ::failure::Error> {
+    ) -> ::std::result::Result<LoadResult<D::EnclaveController>, ::failure::Error> where <D as EnclaveLoad>::EnclaveController: EnclaveControl {
         let mut tokprov = self.einittoken_provider.as_mut();
         let mut tokprov_err = None;
         let einittoken = if let Some(ref mut p) = tokprov {
@@ -146,9 +151,10 @@ impl<D: EnclaveLoad> Device<D> {
             (v, _) => v?,
         }
 
+        let controller = D::create_controller(&mapping);
         let mapping = Arc::new(mapping);
-
         Ok(LoadResult {
+            controller,
             tcss: mapping
                 .tcss
                 .iter()

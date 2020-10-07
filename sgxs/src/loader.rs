@@ -33,9 +33,13 @@ pub struct Mapping<T: Load + ?Sized> {
     pub tcss: Vec<T::Tcs>,
 }
 
+pub trait EnclaveControl: 'static + Send + Sync + Debug {
+}
+
 /// An interface that is able to load an enclave into memory.
 pub trait Load {
     type MappingInfo: MappingInfo;
+    type EnclaveControl: EnclaveControl;
     type Tcs: Tcs;
 
     /// Load an enclave.
@@ -47,5 +51,5 @@ pub trait Load {
         sigstruct: &Sigstruct,
         attributes: Attributes,
         miscselect: Miscselect,
-    ) -> Result<Mapping<Self>, Error>;
+    ) -> Result<(Mapping<Self>, Option<Self::EnclaveControl>), Error>;
 }
